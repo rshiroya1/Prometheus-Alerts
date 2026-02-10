@@ -1,0 +1,99 @@
+# Prometheus Alert Pack — SRE fundamentals
+# High latency, pod restarts, error rate
+
+groups:
+  # ---------------------------------------------------------------------------
+  # High latency
+  # ---------------------------------------------------------------------------
+  - name: latency
+    rules:
+      - alert: HighLatency
+        expr: |
+          (
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)
+            ) > 1
+          )
+          or
+          (
+            sum(rate(http_request_duration_seconds_sum[5m])) by (job)
+            /
+            sum(rate(http_request_duration_seconds_count[5m])) by (job)
+            > 0.5
+          )
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency detected"
+          description: "Request latency (p95 or avg) is above threshold for {{ $labels.job | default 'unknown' }}."
+
+      - alert: HighLatencyCritical
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)
+          ) > 3
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical high latency"
+          description: "p95 latency > 3s for {{ $labels.job | default 'unknown' }}."
+
+  # ---------------------------------------------------------------------------
+  # Pod restarts
+  # ---------------------------------------------------------------------------
+  - name: pod_restarts
+    rules:
+      - alert: PodRestartingFrequently
+        expr: |
+          increase(kube_pod_container_status_restarts_total[1h]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod restarting frequently"
+          description: "Pod {{ $labels.pod }} in {{ $labels.namespace }} has restarted more than 3 times in the last hour."
+
+      - alert: PodRestartLoop
+        expr: |
+          rate(kube_pod_container_status_restarts_total[15m]) * 3600 > 2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pod in restart loop"
+          description: "Pod {{ $labels.pod }} ({{ $labels.container }}) is restarting repeatedly."
+
+  # ---------------------------------------------------------------------------
+  # Error rate
+  # ---------------------------------------------------------------------------
+  - name: error_rate
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)
+            /
+            sum(rate(http_requests_total[5m])) by (job)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate"
+          description: "5xx error rate for {{ $labels.job | default 'unknown' }} is above 5%."
+
+      - alert: HighErrorRateCritical
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)
+            /
+            sum(rate(http_requests_total[5m])) by (job)
+          ) > 0.10
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical high error rate"
+          description: "5xx error rate for {{ $labels.job | default 'unknown' }} is above 10%."
